@@ -6,8 +6,7 @@
 Principal component analysis implemented from scratch with NumPy and validated against
 scikit-learn, applied to matched primary/metastasis RNA-seq from 10 HGSOC patients.
 
-Companion article: *forthcoming* at [alvaroesteban.dev](https://www.alvaroesteban.dev)
-— this repository is being written in the open alongside it.
+Companion article: at [alvaroesteban.dev](https://www.alvaroesteban.dev).
 
 ## The data
 
