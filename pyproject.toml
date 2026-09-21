@@ -1,0 +1,25 @@
+[project]
+name = "pca-rna-seq-from-scratch"
+version = "0.1.0"
+description = "PCA from first principles on matched HGSOC primary/metastasis RNA-seq (GSE133296)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "scikit-learn>=1.5",
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

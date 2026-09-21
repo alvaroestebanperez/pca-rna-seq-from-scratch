@@ -1,0 +1,8 @@
+data/
+figures/*.png
+figures/*.svg
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
