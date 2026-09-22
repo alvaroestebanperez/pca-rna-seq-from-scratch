@@ -12,6 +12,16 @@ import pandas as pd
 from pathlib import Path
 
 from pcarna import PCAResult, distance_matrix, pca
+from pcarna.figures import write_all
+from pcarna.reports import (
+    report_filtering,
+    report_group_distances,
+    report_permanova,
+    report_ranking_scale_effect,
+    report_signature,
+    report_variance,
+    report_within_patient_sites,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
@@ -28,6 +38,10 @@ MIN_SAMPLES = 10          # the smallest group size: a gene expressed at one
 # site only must survive, since that is the biology
 N_VARIABLE_GENES = 500
 SITE_PAIRS = [("ov", "om_met"), ("ov", "met"), ("om_met", "met")]
+CENTRING_GENES = ("POSTN", "COL11A1")   # also the pair used in the animation
+N_PERMUTATIONS = 9999
+RANDOM_STATE = 20260922
+FIGURES = ROOT / "figures"
 
 
 @dataclass(frozen=True)
@@ -127,30 +141,6 @@ def run_pca(stages: Stages) -> dict[str, PCAResult]:
     return {name: pca(matrix) for name, matrix in stages.matrices.items()}
 
 
-def report_filtering(stages: Stages, counts: pd.DataFrame) -> None:
-    kept = stages.matrices["filtered"]
-    retained = kept.to_numpy().sum() / counts.to_numpy().sum() * 100
-    per_sample = kept.sum(axis=1) / stages.library_sizes * 100
-    print(
-        f"{len(stages.kept_genes)} / {counts.shape[1]} genes retained "
-        f"({retained:.1f}% of reads; {per_sample.min():.1f}-{per_sample.max():.1f}% per sample)"
-    )
-
-
-def report_variance(results: dict[str, PCAResult], library_sizes: pd.Series) -> None:
-    """Explained variance per stage, and how far PC1/PC2 track sequencing depth."""
-    print(
-        f"\n{'stage':<10}{'PC1':>7}{'PC2':>7}{'PC3':>7}{'PC4':>7}{'PC5':>7}"
-        f"{'|r| PC1':>10}{'|r| PC2':>9}"
-    )
-    for stage, result in results.items():
-        ratios = "".join(
-            f"{v * 100:6.1f}%" for v in result.explained_variance_ratio.iloc[:5])
-        r1 = abs(result.scores["PC1"].corr(library_sizes))
-        r2 = abs(result.scores["PC2"].corr(library_sizes))
-        print(f"{stage:<10}{ratios}{r1:>10.3f}{r2:>9.3f}")
-
-
 def within_patient_site_distances(
     scores: pd.DataFrame, metadata: pd.DataFrame
 ) -> pd.DataFrame:
@@ -169,47 +159,6 @@ def within_patient_site_distances(
             for a, b in SITE_PAIRS
         },
         index=pd.Index(patients, name="patient"),
-    )
-
-
-def report_within_patient_sites(pair_distances: pd.DataFrame) -> None:
-    print("\nWithin-patient distance between each pair of sites (variable stage):")
-    print(pair_distances.round(1).to_string())
-
-    # Ranked inside each patient rather than averaged across them: patients
-    # differ in overall spread, and averaging would mix that variation with the
-    # site effect it is meant to measure.
-    largest = pair_distances.idxmax(axis=1).value_counts()
-    smallest = pair_distances.idxmin(axis=1).value_counts()
-    expected = len(pair_distances) / pair_distances.shape[1]
-    print(
-        f"\nWhich pair is largest / smallest within a patient "
-        f"(n={len(pair_distances)}, {expected:.1f} expected each if site has no effect):"
-    )
-    for pair in pair_distances.columns:
-        print(
-            f"  {pair:<12} largest {largest.get(pair, 0):>2}   smallest {smallest.get(pair, 0):>2}")
-
-
-def report_ranking_scale_effect(stages: Stages) -> None:
-    """Why variable genes are ranked on the log scale, shown rather than argued.
-
-    RNA-seq variance is a function of expression level, so ranking on CPM
-    selects the most abundant genes rather than the most variable ones. The
-    two rankings turn out to be almost disjoint.
-    """
-    cpm = stages.matrices["cpm"]
-    log2 = stages.matrices["log2_cpm"]
-    by_cpm = cpm.var(axis=0).nlargest(N_VARIABLE_GENES).index
-    by_log2 = stages.gene_variance.nlargest(N_VARIABLE_GENES).index
-    mean_cpm = cpm.mean(axis=0)
-
-    print(
-        f"\nTop {N_VARIABLE_GENES} most variable genes, ranked on CPM vs on log2-CPM:"
-        f"\n  shared by both rankings: {len(set(by_cpm) & set(by_log2))} / {N_VARIABLE_GENES}"
-        f"\n  median expression (CPM) -- ranked on CPM: {mean_cpm[by_cpm].median():.1f}"
-        f"  |  ranked on log2: {mean_cpm[by_log2].median():.1f}"
-        f"  |  all kept genes: {mean_cpm.median():.1f}"
     )
 
 
@@ -257,19 +206,26 @@ def map_signature(annotations: pd.DataFrame, stages: Stages) -> pd.Series:
         )
 
     return mapped
-
-
 def main() -> None:
     counts, annotations, metadata = load_tables()
     stages = build_stages(counts)
     results = run_pca(stages)
 
+    signature = map_signature(annotations, stages)
+    scores = results["variable"].scores
+
     report_filtering(stages, counts)
     report_ranking_scale_effect(stages)
     report_variance(results, stages.library_sizes)
-    report_within_patient_sites(
-        within_patient_site_distances(results["variable"].scores, metadata)
-    )
+    report_group_distances(scores, metadata)
+    report_within_patient_sites(within_patient_site_distances(scores, metadata))
+    report_permanova(scores, metadata,
+                     n_permutations=N_PERMUTATIONS, random_state=RANDOM_STATE)
+    signature_scores = report_signature(stages, annotations, results, signature, metadata)
+
+    written = write_all(stages, results, metadata, annotations, signature,
+                        signature_scores, FIGURES, CENTRING_GENES)
+    print(f"\nwrote {len(written)} figure files to {FIGURES.relative_to(ROOT)}/")
 
 
 if __name__ == "__main__":

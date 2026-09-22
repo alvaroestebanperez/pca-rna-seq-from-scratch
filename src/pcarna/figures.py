@@ -18,10 +18,12 @@ import numpy as np
 import pandas as pd
 
 __all__ = [
+    "write_all",
     "THEMES",
     "SITE_ORDER",
     "SITE_LABEL",
     "figure_centring",
+    "figure_pca",
     "figure_stages",
     "figure_scree",
     "figure_loadings",
@@ -317,3 +319,77 @@ def figure_loadings(result, symbols, signature, scores_table, metadata, theme_na
 
     fig.tight_layout()
     return fig
+
+
+def figure_pca(result, metadata, theme_name: str):
+    """The answer to the title, in two readings of the same scatter.
+
+    Identity is site in the left panel and patient in the right -- but patient
+    is carried by the line joining a patient's three samples, not by a hue.
+    Ten categorical colours cannot clear the colour-vision separation floors;
+    three is the cap for a scatter, and site uses them.
+
+    The eye is a poor judge here: triplet spread varies about sevenfold between
+    patients, so the few long lines dominate the impression while the tight
+    ones read as a single dot. The caption carries the numbers.
+    """
+    theme = THEMES[theme_name]
+    colours = dict(zip(SITE_ORDER, theme["series"]))
+    scores, ratios = result.scores, result.explained_variance_ratio
+    x, y = scores["PC1"], scores["PC2"]
+    pad = 0.08 * (x.max() - x.min())
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.0, 4.3), facecolor=theme["surface"])
+    for ax in axes:
+        _style_axes(ax, theme)
+        ax.set_xlim(x.min() - pad, x.max() + pad)
+        ax.set_ylim(y.min() - pad, y.max() + pad)
+        ax.set_xlabel(f"PC1 · {ratios.iloc[0] * 100:.1f}% of variance",
+                      color=theme["secondary"], fontsize=9)
+    axes[0].set_ylabel(f"PC2 · {ratios.iloc[1] * 100:.1f}%", color=theme["secondary"], fontsize=9)
+
+    def draw_points(ax):
+        for site in SITE_ORDER:
+            mask = (metadata["site"] == site).to_numpy()
+            ax.scatter(x[mask], y[mask], s=62, c=colours[site],
+                       edgecolors=theme["surface"], linewidths=1.4, zorder=3,
+                       label=SITE_LABEL[site])
+
+    draw_points(axes[0])
+    axes[0].set_title("Coloured by anatomical site", color=theme["primary"],
+                      fontsize=10, loc="left", pad=10)
+    legend = axes[0].legend(frameon=False, fontsize=8, loc="best",
+                            handletextpad=0.4, borderpad=0.2)
+    for text in legend.get_texts():
+        text.set_color(theme["secondary"])
+
+    # A closed triangle rather than an open path: the three sites have no order,
+    # and a path would imply one.
+    for patient in metadata["patient_id"].unique():
+        ring = [f"{patient}_{site}" for site in SITE_ORDER]
+        ring.append(ring[0])
+        axes[1].plot(x[ring], y[ring], color=theme["muted"], linewidth=1.1,
+                     alpha=0.7, zorder=2, solid_capstyle="round")
+    draw_points(axes[1])
+    axes[1].set_title("Same samples, one triangle per patient",
+                      color=theme["primary"], fontsize=10, loc="left", pad=10)
+
+    fig.tight_layout()
+    return fig
+
+
+def write_all(stages, results, metadata, annotations, signature, signature_scores,
+              out_dir: Path, centring_genes=("POSTN", "COL11A1"),
+              formats=("svg",)) -> list[Path]:
+    """Every figure in the note, light and dark, from one call."""
+    log2 = stages.matrices["log2_cpm"][signature.index].rename(columns=signature)
+    written = []
+    written += save_both(figure_centring, out_dir, "fig1-centring", log2, *centring_genes, formats=formats)
+    written += save_both(figure_stages, out_dir, "fig2-stages",
+                         results, metadata, stages.library_sizes, formats=formats)
+    written += save_both(figure_scree, out_dir, "fig3-scree", results["variable"], formats=formats)
+    written += save_both(figure_pca, out_dir, "fig4-pca-site-patient",
+                         results["variable"], metadata, formats=formats)
+    written += save_both(figure_loadings, out_dir, "fig5-loadings", results["variable"],
+                         annotations["Gene_Name"], signature, signature_scores, metadata, formats=formats)
+    return written

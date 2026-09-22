@@ -7,6 +7,7 @@ from pcarna.distances import (
     group_distances,
 )
 from pcarna.permanova import PermanovaResult, permanova, pseudo_f
+from pcarna import figures, reports  # noqa: F401
 from pcarna.pca import PCAResult, max_components, pca
 
 __all__ = [
