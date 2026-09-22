@@ -17,7 +17,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-__all__ = ["THEMES", "SITE_ORDER", "SITE_LABEL", "figure_stages", "figure_scree", "save_both"]
+__all__ = [
+    "THEMES",
+    "SITE_ORDER",
+    "SITE_LABEL",
+    "figure_centring",
+    "figure_stages",
+    "figure_scree",
+    "save_both",
+]
 
 THEMES = {
     "light": dict(surface="#fcfcfb", primary="#0b0b0b", secondary="#52514e",
@@ -147,3 +155,63 @@ def save_both(builder, out_dir: Path, stem: str, *args, formats=("svg",)) -> lis
             written.append(path)
         plt.close(fig)
     return written
+
+
+def figure_centring(log2_cpm, gene_a: str, gene_b: str, theme_name: str):
+    """What centring does, on two genes.
+
+    Selected for comparable mean *and* dispersion on the scale in use, so the
+    cloud is not a near-vertical line: POSTN (mean 7.14, sd 2.03) and COL11A1
+    (7.52, 1.87) are the two most variable genes of the 15 in the signature,
+    with means 0.38 apart and dispersions 0.16 apart. They are also the pair
+    used in the companion animation, so the article and the video show the
+    reader the same cloud.
+
+    Both panels share one set of axis limits, computed over the original
+    values, the centred values and zero. Letting each panel autoscale -- even
+    with zero included -- would rescale the cloud and hide the translation,
+    which is the only thing the figure is about.
+    """
+    theme = THEMES[theme_name]
+    x, y = log2_cpm[gene_a], log2_cpm[gene_b]
+    xc, yc = x - x.mean(), y - y.mean()
+
+    span = np.concatenate([x, y, xc, yc, [0.0]])
+    pad = 0.08 * (span.max() - span.min())
+    lo, hi = span.min() - pad, span.max() + pad
+
+    fig, axes = plt.subplots(1, 2, figsize=(8.4, 4.4), facecolor=theme["surface"])
+    panels = [("Original values", x, y), ("After subtracting each gene's mean", xc, yc)]
+
+    for ax, (title, px, py) in zip(axes, panels):
+        _style_axes(ax, theme)
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(lo, hi)
+        ax.set_aspect("equal")          # distances must stay readable as distances
+        ax.axhline(0, color=theme["muted"], linewidth=0.9, zorder=1)
+        ax.axvline(0, color=theme["muted"], linewidth=0.9, zorder=1)
+
+        ax.scatter(px, py, s=54, c=theme["series"][0], edgecolors=theme["surface"],
+                   linewidths=1.2, zorder=4)
+        ax.scatter([0], [0], marker="P", s=110, c=theme["neutral"],
+                   edgecolors=theme["surface"], linewidths=1.2, zorder=5)
+        ax.scatter([px.mean()], [py.mean()], marker="D", s=62,
+                   facecolors="none", edgecolors=theme["series"][1],
+                   linewidths=2.0, zorder=6)
+
+        ax.set_title(title, color=theme["primary"], fontsize=10, loc="left", pad=10)
+        ax.set_xlabel(f"{gene_a}  ·  log2(CPM + 1)", color=theme["secondary"], fontsize=9)
+    axes[0].set_ylabel(f"{gene_b}  ·  log2(CPM + 1)", color=theme["secondary"], fontsize=9)
+
+    # Direct labels rather than a legend box: two marks, named where they sit.
+    axes[0].annotate("origin", xy=(0, 0), xytext=(lo + 0.5 * pad, 0.9),
+                     color=theme["secondary"], fontsize=8.5)
+    axes[0].annotate("centroid", xy=(x.mean(), y.mean()), xytext=(x.mean() + 0.6, y.mean() - 1.4),
+                     color=theme["secondary"], fontsize=8.5,
+                     arrowprops=dict(arrowstyle="-", color=theme["muted"], linewidth=0.8))
+    axes[1].annotate("origin and centroid now coincide", xy=(0, 0),
+                     xytext=(0.6, -2.6), color=theme["secondary"], fontsize=8.5,
+                     arrowprops=dict(arrowstyle="-", color=theme["muted"], linewidth=0.8))
+
+    fig.tight_layout()
+    return fig
