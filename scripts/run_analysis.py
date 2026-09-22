@@ -25,7 +25,7 @@ N_SAMPLES = 30
 N_GENES = 57773
 MIN_CPM = 1
 MIN_SAMPLES = 10          # the smallest group size: a gene expressed at one
-                          # site only must survive, since that is the biology
+# site only must survive, since that is the biology
 N_VARIABLE_GENES = 500
 SITE_PAIRS = [("ov", "om_met"), ("ov", "met"), ("om_met", "met")]
 
@@ -62,15 +62,18 @@ def load_tables() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         RAW_COUNTS_FILE, sep="\t", index_col="Gene_ID", dtype={"Gene_ID": str}
     ).T
     if counts.shape != (N_SAMPLES, N_GENES):
-        raise ValueError(f"expected {(N_SAMPLES, N_GENES)} counts, got {counts.shape}")
+        raise ValueError(
+            f"expected {(N_SAMPLES, N_GENES)} counts, got {counts.shape}")
 
-    annotations = pd.read_csv(ANNOTATIONS_FILE, sep="\t", index_col="Gene_ID", dtype=str)
+    annotations = pd.read_csv(
+        ANNOTATIONS_FILE, sep="\t", index_col="Gene_ID", dtype=str)
 
     metadata = pd.read_csv(
         METADATA_FILE, sep="\t", index_col="sample", dtype={"patient_id": str}
     ).reindex(counts.index)
     if metadata.isna().to_numpy().any():
-        raise ValueError("metadata does not cover every sample in the count matrix")
+        raise ValueError(
+            "metadata does not cover every sample in the count matrix")
 
     return counts, annotations, metadata
 
@@ -103,7 +106,8 @@ def build_stages(counts: pd.DataFrame) -> Stages:
     # Shape alone cannot tell counts from CPM -- both are (30, n_kept) -- so
     # the check has to be on the values.
     if not (cpm_filtered.sum(axis=1) <= 1e6).all():
-        raise ValueError("cpm_filtered does not look like CPM: rows exceed 1e6")
+        raise ValueError(
+            "cpm_filtered does not look like CPM: rows exceed 1e6")
 
     return Stages(
         matrices={
@@ -140,7 +144,8 @@ def report_variance(results: dict[str, PCAResult], library_sizes: pd.Series) -> 
         f"{'|r| PC1':>10}{'|r| PC2':>9}"
     )
     for stage, result in results.items():
-        ratios = "".join(f"{v * 100:6.1f}%" for v in result.explained_variance_ratio.iloc[:5])
+        ratios = "".join(
+            f"{v * 100:6.1f}%" for v in result.explained_variance_ratio.iloc[:5])
         r1 = abs(result.scores["PC1"].corr(library_sizes))
         r2 = abs(result.scores["PC2"].corr(library_sizes))
         print(f"{stage:<10}{ratios}{r1:>10.3f}{r2:>9.3f}")
@@ -182,7 +187,8 @@ def report_within_patient_sites(pair_distances: pd.DataFrame) -> None:
         f"(n={len(pair_distances)}, {expected:.1f} expected each if site has no effect):"
     )
     for pair in pair_distances.columns:
-        print(f"  {pair:<12} largest {largest.get(pair, 0):>2}   smallest {smallest.get(pair, 0):>2}")
+        print(
+            f"  {pair:<12} largest {largest.get(pair, 0):>2}   smallest {smallest.get(pair, 0):>2}")
 
 
 def report_ranking_scale_effect(stages: Stages) -> None:
@@ -205,6 +211,52 @@ def report_ranking_scale_effect(stages: Stages) -> None:
         f"  |  ranked on log2: {mean_cpm[by_log2].median():.1f}"
         f"  |  all kept genes: {mean_cpm.median():.1f}"
     )
+
+
+def map_signature(annotations: pd.DataFrame, stages: Stages) -> pd.Series:
+    """Map the Mes signature's gene symbols onto the matrix's Ensembl IDs.
+
+    The translation uses the annotation that shipped inside the authors' own
+    supplementary workbook, which is the GRCh37/hg19 build their pipeline
+    aligned to. Fetching a current annotation instead would map symbols against
+    a different genome -- symbols get renamed, reassigned and merged over time.
+
+    Returns a Series mapping Ensembl ID -> symbol. The ID is the stable key and
+    what the matrices are indexed by; the symbol is a presentation label, so
+    the caller renames only when it is about to plot.
+    """
+    symbols = pd.read_csv(MES_SIGNATURE_FILE, sep="\t", comment="#")["gene_symbol"]
+    mapped = annotations.loc[annotations["Gene_Name"].isin(symbols), "Gene_Name"]
+
+    missing = sorted(set(symbols) - set(mapped))
+    if missing:
+        raise ValueError(
+            f"{len(missing)} of {len(symbols)} signature genes are absent from the "
+            f"annotation: {missing}"
+        )
+
+    # A symbol resolving to several Ensembl IDs (paralogues, annotated
+    # pseudogenes) would silently weight that gene more than the others.
+    duplicated = mapped.value_counts()
+    duplicated = duplicated[duplicated > 1]
+    if not duplicated.empty:
+        raise ValueError(
+            f"{len(duplicated)} symbol(s) map to more than one Ensembl ID: "
+            f"{duplicated.to_dict()}"
+        )
+
+    # The score is computed on the filtered matrices, so a signature gene that
+    # failed the CPM filter would break selection with a KeyError that never
+    # mentions the signature.
+    dropped = mapped.index.difference(stages.kept_genes)
+    if len(dropped) > 0:
+        raise ValueError(
+            f"{len(dropped)} signature gene(s) did not survive the "
+            f"CPM>={MIN_CPM} in >={MIN_SAMPLES} filter: "
+            f"{mapped.loc[dropped].tolist()}"
+        )
+
+    return mapped
 
 
 def main() -> None:
