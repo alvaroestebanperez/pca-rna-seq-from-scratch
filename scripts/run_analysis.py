@@ -1,11 +1,12 @@
 import pandas as pd
 from pathlib import Path
 import numpy as np
-from pcarna import pca, PCAResult
+from pcarna import distance_matrix, pca, PCAResult
 
 DATA = Path(__file__).resolve().parents[1] / "data"
 RAW_COUNTS_FILE = DATA / "counts_raw.tsv.gz"
 ANNOTATIONS_FILE = DATA / "annotations.tsv.gz"
+METADATA_FILE = DATA / "metadata.tsv.gz"
 
 # Raw data: tcounts_all
 # Transpose filtered: counts_filtered
@@ -81,3 +82,43 @@ for stage, result in results.items():
     r1 = abs(result.scores["PC1"].corr(library_sizes))
     r2 = abs(result.scores["PC2"].corr(library_sizes))
     print(f"{stage:<10}{ratios}{r1:>10.3f}{r2:>9.3f}")
+
+# Load Metadata
+metadata = pd.read_csv(METADATA_FILE, sep="\t",
+                       index_col="sample", dtype={"patient_id": str})
+metadata = metadata.reindex(counts_filtered.index)
+assert metadata.index.equals(counts_filtered.index)
+
+
+# --- Site, assessed within patient -------------------------------------------
+# The global site comparison is confounded: patients differ far more than sites
+# (ratio 1.585 vs 1.005), so a large patient effect can mask a real site effect.
+# With a paired design the interpretable question is whether the three sites
+# separate consistently *inside* each patient.
+SITE_PAIRS = [("ov", "om_met"), ("ov", "met"), ("om_met", "met")]
+
+sample_distances = distance_matrix(results["variable"].scores)
+patients = sorted(metadata["patient_id"].unique(), key=int)
+
+pair_distances = pd.DataFrame(
+    {
+        f"{a}-{b}": [sample_distances.loc[f"{p}_{a}", f"{p}_{b}"] for p in patients]
+        for a, b in SITE_PAIRS
+    },
+    index=pd.Index(patients, name="patient"),
+)
+
+print("\nWithin-patient distance between each pair of sites (variable stage):")
+print(pair_distances.round(1).to_string())
+
+# Rank inside each patient rather than averaging across them: patients differ in
+# overall spread, so raw column means would mix that variation with the site
+# effect they are meant to measure.
+largest = pair_distances.idxmax(axis=1).value_counts()
+smallest = pair_distances.idxmin(axis=1).value_counts()
+expected = len(patients) / len(SITE_PAIRS)
+
+print(f"\nWhich pair is largest / smallest within a patient "
+      f"(n={len(patients)}, {expected:.1f} expected each if site has no effect):")
+for pair in (f"{a}-{b}" for a, b in SITE_PAIRS):
+    print(f"  {pair:<12} largest {largest.get(pair, 0):>2}   smallest {smallest.get(pair, 0):>2}")

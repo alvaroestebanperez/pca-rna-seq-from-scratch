@@ -71,11 +71,13 @@ def pca(X: pd.DataFrame, n_components: int | None = None) -> PCAResult:
 
     n_infinite = int((~np.isfinite(X.to_numpy())).sum())
     if n_infinite:
-        raise ValueError(f"X must not contain infinite values; found {n_infinite}")
+        raise ValueError(
+            f"X must not contain infinite values; found {n_infinite}")
 
     n_samples, n_features = X.shape
     if n_samples < 2:
-        raise ValueError(f"need at least 2 samples to decompose, got {n_samples}")
+        raise ValueError(
+            f"need at least 2 samples to decompose, got {n_samples}")
 
     limit = max_components(n_samples, n_features)
     if n_components is None:
