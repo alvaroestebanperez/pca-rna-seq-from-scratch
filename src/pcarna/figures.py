@@ -24,6 +24,8 @@ __all__ = [
     "figure_centring",
     "figure_stages",
     "figure_scree",
+    "figure_loadings",
+    "mes_scores",
     "save_both",
 ]
 
@@ -209,9 +211,109 @@ def figure_centring(log2_cpm, gene_a: str, gene_b: str, theme_name: str):
     axes[0].annotate("centroid", xy=(x.mean(), y.mean()), xytext=(x.mean() + 0.6, y.mean() - 1.4),
                      color=theme["secondary"], fontsize=8.5,
                      arrowprops=dict(arrowstyle="-", color=theme["muted"], linewidth=0.8))
-    axes[1].annotate("origin and centroid now coincide", xy=(0, 0),
-                     xytext=(0.6, -2.6), color=theme["secondary"], fontsize=8.5,
+    # Placed in the empty lower-right quadrant: the cloud runs lower-left to
+    # upper-right, so anything nearer the origin collides with a point.
+    axes[1].annotate("origin and centroid\nnow coincide", xy=(0.25, -0.25),
+                     xytext=(0.45 * hi, 0.55 * lo), color=theme["secondary"],
+                     fontsize=8.5, ha="left", va="top",
                      arrowprops=dict(arrowstyle="-", color=theme["muted"], linewidth=0.8))
+
+    fig.tight_layout()
+    return fig
+
+
+def mes_scores(log2_cpm, signature, sites) -> pd.DataFrame:
+    """The Mes signature score per sample, both ways it can be computed.
+
+    `authors` follows Hu et al.: threshold each gene at its median across the
+    primary tumours, score 1/0, sum the 15 and rescale to 0-1.
+    `z` is the plainer continuous alternative: z-score each gene across
+    samples, then average.
+
+    This is an *expression signature*, not a measurement of stromal content.
+    Hu et al. showed it tracks pathologist-counted fibroblasts in this dataset's
+    metastases (r = 0.703 omental, 0.893 non-omental) and not in its primary
+    tumours (r = 0.170, ns) -- the cell counting is theirs, not ours.
+    """
+    mes = log2_cpm[signature.index]
+    primary_median = mes[(sites == "ov").to_numpy()].median()
+    z = (mes - mes.mean()) / mes.std()
+    return pd.DataFrame(
+        {"authors": (mes > primary_median).sum(axis=1) / mes.shape[1], "z": z.mean(axis=1)}
+    )
+
+
+def figure_loadings(result, symbols, signature, scores_table, metadata, theme_name: str,
+                    n_top: int = 8):
+    """What the components are made of, and where the signature sits.
+
+    Any association between the signature score and the components is
+    descriptive rather than independent evidence: both are computed from the
+    same matrix, so a correlation between them is partly a restatement.
+    """
+    theme = THEMES[theme_name]
+    loadings = result.loadings["PC1"]
+    named = loadings.rename(index=symbols)
+
+    fig, axes = plt.subplots(1, 3, figsize=(13.2, 4.3), facecolor=theme["surface"])
+    for ax in axes:
+        _style_axes(ax, theme)
+
+    # A -- the genes that build PC1.
+    extremes = pd.concat([named.nsmallest(n_top), named.nlargest(n_top)]).sort_values()
+    positions = np.arange(len(extremes))
+    colours = [theme["series"][1] if v < 0 else theme["series"][0] for v in extremes]
+    axes[0].barh(positions, extremes.to_numpy(), color=colours, height=0.68, zorder=3)
+    axes[0].set_yticks(positions)
+    axes[0].set_yticklabels(extremes.index, fontsize=7.5, color=theme["secondary"])
+    axes[0].axvline(0, color=theme["muted"], linewidth=0.9, zorder=4)
+    axes[0].set_xlabel("PC1 loading", color=theme["secondary"], fontsize=9)
+    axes[0].set_title(f"Genes building PC1 · {result.explained_variance_ratio.iloc[0] * 100:.1f}% of variance",
+                      color=theme["primary"], fontsize=9.5, loc="left", pad=10)
+
+    # B -- the signature against the whole loading distribution.
+    present = [g for g in signature.index if g in loadings.index]
+    magnitude = loadings.abs()
+    axes[1].hist(magnitude.to_numpy(), bins=40, color=theme["grid"], zorder=2)
+    for gene in present:
+        axes[1].axvline(magnitude[gene], color=theme["series"][2], linewidth=1.6, zorder=3)
+
+    # One annotation rather than four rotated labels: the signature genes sit
+    # so close together at the low end that individual labels collide.
+    percentile = magnitude.rank(pct=True)[present].max() * 100
+    listed = ", ".join(sorted(symbols[g] for g in present))
+    top = axes[1].get_ylim()[1]
+    axes[1].annotate(
+        f"{listed}\nall below the {percentile:.0f}th percentile",
+        xy=(magnitude[present].max(), top * 0.55),
+        xytext=(magnitude.max() * 0.42, top * 0.78),
+        color=theme["secondary"], fontsize=8, va="top",
+        arrowprops=dict(arrowstyle="-", color=theme["series"][2], linewidth=1.0),
+    )
+    axes[1].set_xlabel("|PC1 loading|", color=theme["secondary"], fontsize=9)
+    axes[1].set_ylabel("Genes", color=theme["secondary"], fontsize=9)
+    axes[1].set_title(
+        f"Where the signature sits ({len(present)} of {len(signature)} genes analysed)",
+        color=theme["primary"], fontsize=9.5, loc="left", pad=10,
+    )
+
+    # C -- the signature score by site.
+    order = SITE_ORDER
+    rng = np.random.default_rng(0)
+    for i, site in enumerate(order):
+        values = scores_table.loc[(metadata["site"] == site).to_numpy(), "z"]
+        jitter = rng.uniform(-0.13, 0.13, len(values))
+        axes[2].scatter(np.full(len(values), i) + jitter, values, s=48,
+                        c=THEMES[theme_name]["series"][i], edgecolors=theme["surface"],
+                        linewidths=1.1, zorder=3)
+        axes[2].plot([i - 0.28, i + 0.28], [values.mean()] * 2, color=theme["primary"],
+                     linewidth=1.8, zorder=4, solid_capstyle="round")
+    axes[2].set_xticks(range(len(order)))
+    axes[2].set_xticklabels([SITE_LABEL[s] for s in order], fontsize=8, color=theme["secondary"])
+    axes[2].set_ylabel("Mes signature score (mean z)", color=theme["secondary"], fontsize=9)
+    axes[2].set_xlim(-0.55, len(order) - 0.45)
+    axes[2].set_title("Signature score by site", color=theme["primary"],
+                      fontsize=9.5, loc="left", pad=10)
 
     fig.tight_layout()
     return fig
