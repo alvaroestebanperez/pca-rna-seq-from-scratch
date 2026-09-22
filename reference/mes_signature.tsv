@@ -1,0 +1,34 @@
+# Mesenchymal (Mes) HGSC signature, 15 genes.
+#
+# Source: Hu Y, Taylor-Harding B, Raz Y, Haro M, Recouvreux MS, Taylan E,
+#   Lester J, Millstein J, Walts AE, Karlan BY, Orsulic S (2020).
+#   "Are Epithelial Ovarian Cancers of the Mesenchymal Subtype Actually
+#   Intraperitoneal Metastases to the Ovary?"
+#   Front Cell Dev Biol 8:647. doi:10.3389/fcell.2020.00647
+#   Supplementary Table S2 ("15 genes (NanoString)" column).
+#
+# The authors score a sample by thresholding each gene at its median across
+# primary tumours, assigning 1/0, summing the 15 and rescaling to 0-1, where
+# 1 = Mes. They report this score tracking fibroblast content in GSE133296
+# metastases (r = 0.703 omental, 0.893 non-omental) but not in primary
+# ovarian tumours (r = 0.170, ns) -- so it is an expression signature that
+# they showed follows stromal content, not a measurement of stroma.
+#
+# All 15 are a strict subset of the 100-gene Verhaak Mes set, and every one is
+# a collagen / extracellular matrix / fibroblast gene.
+gene_symbol
+ADAM12
+COL11A1
+COL5A1
+COL5A2
+DCN
+FAP
+FBN1
+FN1
+INHBA
+LOX
+LUM
+POSTN
+SPARC
+THBS2
+VCAN
