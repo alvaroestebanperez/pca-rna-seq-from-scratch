@@ -53,19 +53,39 @@ def pca(X: pd.DataFrame, n_components: int | None = None) -> PCAResult:
     Returns:
         PCAResult containing scores, loadings, explained variance, explained variance ratio, and mean.
     """
-    assert X is not None and not X.empty, "Input DataFrame X must not be None or empty."
-    assert not X.isnull().values.any(), "Input DataFrame X must not contain NaN values."
-    assert not np.isinf(X.values).any(
-    ), "Input DataFrame X must not contain infinite values."
+    if X is None or X.empty:
+        raise ValueError("X must be a non-empty DataFrame")
+
+    # Checked before isnull/isinf: those assume numeric data, and a text column
+    # makes np.isinf fail with a TypeError that never names the culprit.
+    non_numeric = X.columns[~X.dtypes.map(pd.api.types.is_numeric_dtype)]
+    if len(non_numeric) > 0:
+        raise ValueError(
+            f"X must be entirely numeric; {len(non_numeric)} column(s) are not, "
+            f"first: {list(non_numeric[:5])}"
+        )
+
+    n_missing = int(X.isna().to_numpy().sum())
+    if n_missing:
+        raise ValueError(f"X must not contain NaN; found {n_missing}")
+
+    n_infinite = int((~np.isfinite(X.to_numpy())).sum())
+    if n_infinite:
+        raise ValueError(f"X must not contain infinite values; found {n_infinite}")
 
     n_samples, n_features = X.shape
-    assert n_samples > 1, "The number of samples must be greater than 1."
+    if n_samples < 2:
+        raise ValueError(f"need at least 2 samples to decompose, got {n_samples}")
+
+    limit = max_components(n_samples, n_features)
     if n_components is None:
-        n_components = max_components(n_samples, n_features)
-    else:
-        assert n_components <= max_components(
-            n_samples, n_features), "n_components must not exceed the maximum number of principal components."
-        assert n_components > 0, "n_components must be a positive integer."
+        n_components = limit
+    elif not 1 <= n_components <= limit:
+        raise ValueError(
+            f"n_components must be between 1 and {limit} (centred data of "
+            f"{n_samples} samples and {n_features} features has rank at most "
+            f"{limit}), got {n_components}"
+        )
 
     # Center the data
     mean = X.mean(axis=0)  # Mean of each gene

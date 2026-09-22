@@ -163,7 +163,7 @@ def write_tables(df_counts_raw, df_counts_normalized, df_annotations, df_metadat
 
 
 def main():
-    if calculate_checksum(file_path) != CHECKSUM:
+    if calculate_checksum(FILE) != CHECKSUM:
         raise ValueError("The excel file has been changed!")
 
     df_counts_raw, df_counts_normalized, df_annotations = read_counts()
