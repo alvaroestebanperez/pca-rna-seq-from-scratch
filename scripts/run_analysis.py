@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 import numpy as np
+from pcarna import pca, PCAResult
 
 DATA = Path(__file__).resolve().parents[1] / "data"
 RAW_COUNTS_FILE = DATA / "counts_raw.tsv.gz"
@@ -67,3 +68,16 @@ stages = {
     "log2_cpm": log2_cpm,
     "variable": log2_cpm_variable_top500,
 }
+
+results = {stage: pca(data) for stage, data in stages.items()}
+
+# Explained variance per stage, and how much PC1/PC2 track sequencing depth.
+header = (f"{'stage':<10}{'PC1':>7}{'PC2':>7}{'PC3':>7}{'PC4':>7}{'PC5':>7}"
+          f"{'|r| PC1':>10}{'|r| PC2':>9}")
+print(header)
+for stage, result in results.items():
+    ratios = "".join(
+        f"{v * 100:6.1f}%" for v in result.explained_variance_ratio.iloc[:5])
+    r1 = abs(result.scores["PC1"].corr(library_sizes))
+    r2 = abs(result.scores["PC2"].corr(library_sizes))
+    print(f"{stage:<10}{ratios}{r1:>10.3f}{r2:>9.3f}")
